@@ -11,5 +11,6 @@ INSERT INTO album
 	(title, artist,  price)
 VALUES
 	('Long Live', 'Taylor Swift', 10),
+	('Shake It Off', 'Taylor Swift', 8.99),
 	('Work From Home', 'Fifth Harmony', 5),
 	('Fireflies', 'Owl City', 8);
