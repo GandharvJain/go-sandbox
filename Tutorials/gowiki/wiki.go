@@ -37,12 +37,14 @@ func main() {
 	fmt.Println(string(p2.Body))
 
 	router := gin.Default()
-	router.GET("/echo/*any", echoBack)
-	router.GET("/view/:title", viewPage)
+	router.GET("/echo/*any", echoHandler)
+	router.GET("/view/:title", viewHandler)
+	router.GET("/edit/:title", editHandler)
+	router.POST("/save/:title", saveHandler)
 	router.Run("localhost:8080")
 }
 
-func viewPage(c *gin.Context) {
+func viewHandler(c *gin.Context) {
 	title := c.Param("title")
 	p, err := loadPage(title)
 	if err != nil {
@@ -53,6 +55,30 @@ func viewPage(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html", []byte(data))
 }
 
-func echoBack(c *gin.Context) {
+func editHandler(c *gin.Context) {
+	title := c.Param("title")
+	p, err := loadPage(title)
+	if err != nil {
+		p = &Page{Title: title}
+	}
+	data := fmt.Sprintf(`
+	<h1>Editing %s</h1>
+	<form action="/save/%s" method="POST">
+	<textarea name="body">%s</textarea><br>
+	<input type="submit" value="Save">
+	</form>`,
+	p.Title, p.Title, p.Body)
+	c.Data(http.StatusOK, "text/html", []byte(data))
+}
+
+func saveHandler(c *gin.Context) {
+	title := c.Param("title")
+	body := c.PostForm("body")
+	p := &Page{Title: title, Body: []byte(body)}
+	p.save()
+	c.Redirect(http.StatusFound, "/view/"+title)
+}
+
+func echoHandler(c *gin.Context) {
 	c.String(http.StatusOK, "Hi there, I love %s!", c.Param("any")[1:])
 }
