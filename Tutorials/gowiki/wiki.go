@@ -1,11 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"regexp"
+	"fmt"
+	"html/template"
 )
+
+const pagesRoot = "Pages/"
+const pagesExt = ".txt"
 
 type Page struct {
 	Title	string
@@ -13,12 +18,12 @@ type Page struct {
 }
 
 func (p *Page) save() error {
-	filename := p.Title + ".txt"
+	filename := pagesRoot + p.Title + pagesExt
 	return os.WriteFile(filename, p.Body, 0600)
 }
 
 func loadPage(title string) (*Page, error) {
-	filename := title + ".txt"
+	filename := pagesRoot + title + pagesExt
 	body, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
@@ -27,55 +32,58 @@ func loadPage(title string) (*Page, error) {
 }
 
 func main() {
-	p1 := &Page{Title: "TestPage", Body: []byte("This is a sample Page.")}
-	p1.save()
-	p2, err := loadPage("TestPage")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error while loading page: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println(string(p2.Body))
-
 	router := gin.Default()
+	router.LoadHTMLGlob("templates/*")
 	router.GET("/echo/*any", echoHandler)
-	router.GET("/view/:title", viewHandler)
-	router.GET("/edit/:title", editHandler)
-	router.POST("/save/:title", saveHandler)
+	router.GET("/view/:title", makeHandler(viewHandler))
+	router.GET("/edit/:title", makeHandler(editHandler))
+	router.POST("/save/:title", makeHandler(saveHandler))
 	router.Run("localhost:8080")
 }
 
-func viewHandler(c *gin.Context) {
-	title := c.Param("title")
-	p, err := loadPage(title)
-	if err != nil {
-		data := fmt.Sprintf("<h1>Page \"%s\" does not exist</h1>", title)
-		c.Data(http.StatusNotFound, "text/html", []byte(data))
+func makeHandler(fn func(*gin.Context, string)) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		title := c.Param("title")
+		fn(c, title)
 	}
-	data := fmt.Sprintf("<h1>%s</h1><div>%s</div>", p.Title, p.Body)
-	c.Data(http.StatusOK, "text/html", []byte(data))
 }
 
-func editHandler(c *gin.Context) {
-	title := c.Param("title")
+func prerenderViewHandler(body []byte) []byte {
+	re := regexp.MustCompile(`\[(.+)\]`)
+	escapedBody := []byte(template.HTMLEscapeString(string(body)))
+	newBody := re.ReplaceAllFunc(escapedBody, func(s []byte) []byte {
+		pageName := re.ReplaceAllString(string(s), `$1`)
+		newStr := fmt.Sprintf("<a href='/view/%s'>%s</a>", pageName, pageName)
+		return []byte(newStr)
+	})
+	return newBody
+}
+
+func viewHandler(c *gin.Context, title string) {
+	p, err := loadPage(title)
+	if err != nil {
+		c.HTML(http.StatusOK, "view_not_found.html", gin.H{"Title": title})
+		return
+	}
+	body := string(prerenderViewHandler(p.Body))
+	c.HTML(http.StatusOK, "view_found.html", gin.H{"Title": p.Title, "Body": template.HTML(body)})
+}
+
+func editHandler(c *gin.Context, title string) {
 	p, err := loadPage(title)
 	if err != nil {
 		p = &Page{Title: title}
 	}
-	data := fmt.Sprintf(`
-	<h1>Editing %s</h1>
-	<form action="/save/%s" method="POST">
-	<textarea name="body">%s</textarea><br>
-	<input type="submit" value="Save">
-	</form>`,
-	p.Title, p.Title, p.Body)
-	c.Data(http.StatusOK, "text/html", []byte(data))
+	c.HTML(http.StatusOK, "edit.html", p)
 }
 
-func saveHandler(c *gin.Context) {
-	title := c.Param("title")
+func saveHandler(c *gin.Context, title string) {
 	body := c.PostForm("body")
 	p := &Page{Title: title, Body: []byte(body)}
-	p.save()
+	err := p.save()
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+	}
 	c.Redirect(http.StatusFound, "/view/"+title)
 }
 
